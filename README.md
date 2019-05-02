@@ -2,7 +2,11 @@
 
 Andrea Rau, Sumona Dhara, Ava Udvadia, Paul Auer
 
+<div>
+<center>
 <img src="rosetta.png" align="center" />
+</center>
+</div>
 
 Time-course high-throughput assays of gene expression and enhancer usage in zebrafish provide a valuable characterization of the dynamic mechanisms governing gene regulatory programs during CNS axon regeneration. To facilitate the exploration and functional interpretation of a set of fully-processed data on regeneration-associated temporal transcription networks, we have created an interactive web application called [*Regeneration Rosetta*](http://ls-external-dev.uwm.edu/rosetta/). Using either built-in or user-provided lists of genes in one of dozens of supported organisms, our web application facilitates the (1) visualization of clustered temporal expression trends; (2) identification of proximal and distal regions of accessible chromatin to expedite downstream motif analysis; and (3) description of enriched functional gene ontology categories. By enabling a straightforward interrogation of these rich data without extensive bioinformatic expertise, Regeneration Rosetta is broadly useful for both a deep investigation of time-dependent regulation during regeneration in zebrafish and hypothesis generation in other organisms.
 
