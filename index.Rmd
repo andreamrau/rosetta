@@ -49,6 +49,8 @@ heatmap_transcripts_to_genes <- readRDS("data/heatmap_transcripts_to_genes.rds")
 overall_LRT_pvalues <- readRDS("data/heatmap_overall_LRT_pvalues.rds")
 logtpm <- readRDS("data/heatmap_logtpm.rds")
 qval_all <- readRDS("data/qval_all.rds")
+## AR: May 24, add possibility to filter on 5% DE
+sig_transcripts_05 <- rownames(qval_all)[which(apply(qval_all, 1, min) < 0.05)]
 ## Reorder LFC and qval so that it is in right order
 LFC_all <- LFC_all[,c(2,1,3,4)]
 qval_all <- qval_all[,c(2,1,3,4)]
@@ -99,7 +101,7 @@ font-family: Helvetica;
 
 
 ### Identifying regulatory factors governing regeneration-associated gene expression during Central Nervous System (CNS) regeneration in zebrafish
-[Sumona P. Dhara](https://uwm.edu/biology/people/dhara-sumona/), [Andrea Rau](https://andreamrau.github.io), Nicole M. Recka, [Paul L. Auer](http://people.uwm.edu/pauer/), [Michael J. Flister](https://www.mcw.edu/departments/physiology/faculty/michael-flister-phd), and [Ava J. Udvadia](https://uwm.edu/biology/people/udvadia-ava/)
+[Andrea Rau](https://andrea-rau.com), [Sumona P. Dhara](https://uwm.edu/biology/people/dhara-sumona/), [Ava J. Udvadia](https://uwm.edu/biology/people/udvadia-ava/), and [Paul L. Auer](http://people.uwm.edu/pauer/)
 
 <div>
 <center>
@@ -221,6 +223,7 @@ output$summary <- renderUI({
 output$summary_text <- renderText({
   req(input$excel)
   req(gene_select_index())
+  req(h())
   if(length(grep(".xlsx", input$excel$datapath))) {
       tmp <- read_excel(input$excel$datapath)
   } else {
@@ -245,8 +248,8 @@ output$plot_all_or_DE <- renderUI({
   if(!input$genelist %in% c(" ", "Built-in gene list")) {
       radioButtons("all_or_DE", 
                 label="Gene set choice:",
-                choices = c("All genes in list", "Only DE genes"),
-                selected = "All genes in list", inline=TRUE) 
+                choices = c("All genes in list", "Only DE genes (5%)", "Only DE genes (1%)"),
+                selected = "All genes in list", inline=FALSE) 
   }
 })
 ## Clustering columns
@@ -315,10 +318,23 @@ output$lbl_download <- downloadHandler(filename = function() {
       df <- data.frame(target_id = rownames(h()@matrix)[row_order(h())]) %>%
         dplyr::select(ID = target_id)
       if(length(grep("ENSDART", df$ID))) {
-        pvaldf <- overall_LRT_pvalues %>% 
-          dplyr::select(ID = target_id, ext_gene, padj = qval)
-        df <- left_join(df, pvaldf, by=c("ID")) %>%
-          left_join(., data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE))
+        # pvaldf <- overall_LRT_pvalues %>% 
+        #   dplyr::select(ID = target_id, ext_gene, padj = qval)
+        # df <- left_join(df, pvaldf, by=c("ID")) %>%
+        #   left_join(., data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE))
+      
+      ## AR 5/24: return full p-values instead of overall LRT
+      pvaldf <- full_join(overall_LRT_pvalues, 
+                          data.frame(target_id = rownames(qval_all), qval_all, check.names = FALSE),
+                          by = "target_id") %>% 
+        dplyr::select(-qval)
+      colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
+                            "7dpi-0dpi_qval", "12dpi-0dpi_qval")
+      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE)
+      colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
+                            "7dpi-0dpi_LFC", "12dpi-0dpi_LFC")
+      df <- left_join(df, pvaldf, by=c("ID")) %>%
+        left_join(., LFCdf, by = "ID")
       }
       write.csv(df, file, row.names=FALSE, quote=FALSE)
       }, contentType="application/csv")
@@ -629,11 +645,16 @@ gene_select_index <- reactive({
 heatmap_data_select <- reactive({
   
     if(input$genelist != "Built-in gene list") {
-      if(input$all_or_DE == "Only DE genes") {
+      if(input$all_or_DE == "Only DE genes (1%)") {
 #      DE_index <- which(overall_LRT_pvalues$qval < 0.05)
        ## AR 4/18/19: use the same differential definition as before
        available_transcripts <- rownames(LFC_all)
        DE_index <- which(available_transcripts %in% sig_transcripts)
+       index <- intersect(gene_select_index(), DE_index)
+       ## AR 5/24/19: add filtering on 5% as well if desired
+      } else if(input$all_or_DE == "Only DE genes (5%)") {
+       available_transcripts <- rownames(LFC_all)
+       DE_index <- which(available_transcripts %in% sig_transcripts_05)
        index <- intersect(gene_select_index(), DE_index)
       } else {
         index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
@@ -752,10 +773,19 @@ kmeans_labs <- reactive({
     # kclus <- kmeans(heatmap_data_select(), input$kmeans_K)
     # df <- data.frame(ID=rownames(heatmap_data_select()), Cluster=kclus$cluster)
     if(length(grep("ENSDART", df$ID))) {
-      pvaldf <- overall_LRT_pvalues %>% 
-        dplyr::select(ID = target_id, ext_gene, padj = qval)
+      # pvaldf <- overall_LRT_pvalues %>% 
+      #   dplyr::select(ID = target_id, ext_gene, padj = qval)
+      pvaldf <- full_join(overall_LRT_pvalues, 
+                          data.frame(target_id = rownames(qval_all), qval_all, check.names = FALSE),
+                          by = "target_id") %>% 
+        dplyr::select(-qval)
+      colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
+                            "7dpi-0dpi_qval", "12dpi-0dpi_qval")
+      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE)
+      colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
+                            "7dpi-0dpi_LFC", "12dpi-0dpi_LFC")
       df <- left_join(df, pvaldf, by=c("ID")) %>%
-        left_join(., data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE))
+        left_join(., LFCdf, by = "ID")
     }
     df                 
   } else NULL
@@ -1597,7 +1627,7 @@ The app is organized into 2 primary analysis tabs: one centered on a list of gen
 
 **2. How are DE genes identified in the app?**
 
-Transcript abundances in the RNA-seq data were quantified using [kallisto](https://pachterlab.github.io/kallisto/), and differentially expressed transcripts were identified using [sleuth](https://pachterlab.github.io/sleuth/). For heatmaps of built-in differential gene lists (e.g. "2dpi-0dpi DE genes"), a q-value threshold of 1% was used to identify DE transcripts; this corresponds to 4614 transcripts in the full DE list.  When reading in an Excel spreadsheet or .csv file containing gene symbols or Ensembl Ids, users additionally have the option of filtering their gene selection to include only DE genes; in this case, genes are identified as DE if the q-value from the overall likelihood ratio test of differential expression at any time point is less than 5% for any transcript corresponding to the gene.
+Transcript abundances in the RNA-seq data were quantified using [kallisto](https://pachterlab.github.io/kallisto/), and differentially expressed transcripts were identified using [sleuth](https://pachterlab.github.io/sleuth/). For heatmaps of built-in differential gene lists (e.g. "2dpi-0dpi DE genes"), a q-value threshold of 1% was used to identify DE transcripts; the "All DE genes" list corresponds to the 4614 transcripts for which a q-value < 1% was observed for at least one of the pairwise comparisons. When reading in an Excel spreadsheet or .csv file containing gene symbols or Ensembl Ids, users additionally have the option of filtering their gene selection to include only DE genes; in this case, genes are identified as DE if the q-value from at least one pairwise comparison is less than 1% or 5% for any transcript corresponding to the gene.
 
 **3. How are proximal and distal open chromatin regions defined with respect to a set of genes?**
 
@@ -1618,12 +1648,12 @@ Please contact [Dr. Ava Udvadia](audvadia@uwm.edu) or [Dr. Paul Livermore Auer](
 
 For more information about the experimental details, etc. related to this work:
 
-* Dhara et al. (2019)  Identifying regulatory factors governing regeneration-associated gene expression during Central Nervous System (CNS) regeneration in zebrafish (in preparation)
+* Dhara et al. (2019) Regulation of CNS regeneration-associated genes is driven by a temporally changing cast of transcription factors. *bioRxiv*, doi: https://doi.org/10.1101/638734.
 
 For more information about this app:
 
-* Rau et al. (2019) Regeneration Rosetta:  An interactive web application to explore regeneration-associated gene expression and chromatin accessibility (in preparation).
-
+* Rau et al. (2019) Regeneration Rosetta: An interactive web application to explore regeneration-associated gene expression and chromatin accessibility. *bioRxiv*, doi: https://doi.org/10.1101/632018.
+ 
 
 <br>
 <br>
@@ -1654,12 +1684,12 @@ This work was made possible by the availability of the open-source programming l
 
 <br>
 
-Dr. Andrea Rau was supported by the [AgreenSkills+](https://www.agreenskills.eu) fellowship program, which received funding from the EU's Seventh Framework Program under grant agreement FP7-60939 (AgreenSkills+ contract). We thank the [UWM High Performance Computing (HPC) Service](http://uwm.edu/hpc) for computing resources used in this work.
+Dr. Andrea Rau was supported by the [AgreenSkills+](https://www.agreenskills.eu) fellowship program, which received funding from the EU's Seventh Framework Program under grant agreement FP7-60939 (AgreenSkills+ contract). We thank the [UWM High Performance Computing (HPC) Service](http://uwm.edu/hpc) for computing resources used in this work. Sumona P. Dhara was supported by the Clifford Mortimer Distinguished Scholar Award, University of Wisconsin-Milwaukee.
 
 <br>
 
 This resource is available under the [GNU public license](https://www.gnu.org/licenses/gpl-3.0.en.html) (GPL-3). If you use any of the results or figures generated by this app in a publication or presentation, please cite our work:
 
-* Dhara et al. (2019)  Identifying regulatory factors governing regeneration-associated gene expression during Central Nervous System (CNS) regeneration in zebrafish (in preparation).
-* Rau et al. (2019) Regeneration Rosetta:  An interactive web application to explore regeneration-associated gene expression and chromatin accessibility (in preparation).
+* Rau et al. (2019) Regeneration Rosetta: An interactive web application to explore regeneration-associated gene expression and chromatin accessibility. *bioRxiv*, doi: https://doi.org/10.1101/632018.
+* Dhara et al. (2019) Regulation of CNS regeneration-associated genes is driven by a temporally changing cast of transcription factors. *bioRxiv*, doi: https://doi.org/10.1101/638734.
 
