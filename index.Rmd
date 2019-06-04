@@ -315,28 +315,7 @@ output$label_download <- renderUI({
 })
 output$lbl_download <- downloadHandler(filename = function() {
       "heatmap_row_labels.csv"}, content = function(file) {
-      df <- data.frame(target_id = rownames(h()@matrix)[row_order(h())]) %>%
-        dplyr::select(ID = target_id)
-      if(length(grep("ENSDART", df$ID))) {
-        # pvaldf <- overall_LRT_pvalues %>% 
-        #   dplyr::select(ID = target_id, ext_gene, padj = qval)
-        # df <- left_join(df, pvaldf, by=c("ID")) %>%
-        #   left_join(., data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE))
-      
-      ## AR 5/24: return full p-values instead of overall LRT
-      pvaldf <- full_join(overall_LRT_pvalues, 
-                          data.frame(target_id = rownames(qval_all), qval_all, check.names = FALSE),
-                          by = "target_id") %>% 
-        dplyr::select(-qval)
-      colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
-                            "7dpi-0dpi_qval", "12dpi-0dpi_qval")
-      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE)
-      colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
-                            "7dpi-0dpi_LFC", "12dpi-0dpi_LFC")
-      df <- left_join(df, pvaldf, by=c("ID")) %>%
-        left_join(., LFCdf, by = "ID")
-      }
-      write.csv(df, file, row.names=FALSE, quote=FALSE)
+        write.csv(nonkmeans_labs(), file, row.names=FALSE, quote=FALSE)
       }, contentType="application/csv")
 
 
@@ -752,6 +731,33 @@ h <- reactive({
           row_names_gp=row_names_gp)
   }
   return(h)
+})
+
+nonkmeans_labs <- reactive({
+  req(h())
+  if(input$cluster_rows != "K-means") {
+       df <- data.frame(target_id = rownames(h()@matrix)[row_order(h())]) %>%
+        dplyr::select(ID = target_id)
+      if(length(grep("ENSDART", df$ID))) {
+        # pvaldf <- overall_LRT_pvalues %>% 
+        #   dplyr::select(ID = target_id, ext_gene, padj = qval)
+        # df <- left_join(df, pvaldf, by=c("ID")) %>%
+        #   left_join(., data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE))
+      ## AR 5/24: return full p-values instead of overall LRT
+      pvaldf <- full_join(overall_LRT_pvalues, 
+                          data.frame(target_id = rownames(qval_all), qval_all, check.names = FALSE),
+                          by = "target_id") %>% 
+        dplyr::select(-qval)
+      colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
+                            "7dpi-0dpi_qval", "12dpi-0dpi_qval")
+      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE)
+      colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
+                            "7dpi-0dpi_LFC", "12dpi-0dpi_LFC")
+      df <- left_join(df, pvaldf, by=c("ID")) %>%
+        left_join(., LFCdf, by = "ID")
+      }
+    df
+  } else NULL
 })
 
 kmeans_labs <- reactive({
