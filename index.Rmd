@@ -1698,4 +1698,5 @@ This resource is available under the [GNU public license](https://www.gnu.org/li
 
 * Rau et al. (2019) Regeneration Rosetta: An interactive web application to explore regeneration-associated gene expression and chromatin accessibility. *bioRxiv*, doi: https://doi.org/10.1101/632018.
 * Dhara et al. (2019) Regulation of CNS regeneration-associated genes is driven by a temporally changing cast of transcription factors. *bioRxiv*, doi: https://doi.org/10.1101/638734.
+* Rau et al. (2019) [Regeneration Rosetta](http://ls-shiny-prod.uwm.edu/rosetta). doi: https://doi.org/10.5281/zenodo.2658771. 
 
