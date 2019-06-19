@@ -205,7 +205,7 @@ output$excel_columns <- renderUI({
           if(is.null(input$excel)) 
       return(NULL)
       inFile <- input$excel
-      if(length(grep(".xlsx", inFile$datapath))) {
+      if(length(grep(".xlsx", inFile$datapath))>0) {
           readFile <- read_excel(inFile$datapath)
       } else {
         readFile <- read.csv(inFile$datapath)
@@ -224,7 +224,7 @@ output$summary_text <- renderText({
   req(input$excel)
   req(gene_select_index())
   req(h())
-  if(length(grep(".xlsx", input$excel$datapath))) {
+  if(length(grep(".xlsx", input$excel$datapath))>0) {
       tmp <- read_excel(input$excel$datapath)
   } else {
       tmp <- read.csv(input$excel$datapath)
@@ -277,7 +277,8 @@ output$kmeans_clusters <- renderUI({
   } else NULL
 })
 output$kmeans_clusters_order <- renderUI({
-  if(input$cluster_rows == "K-means") {
+  if(length(input$kmeans_K) > 0) {
+    # if(input$cluster_rows == "K-means") {
     # selectInput("kmeans_order", label="Order of K-means clusters", 
     #             choices = c(1:input$kmeans_K), 
     #             multiple=TRUE, selected = c(1:input$kmeans_K))
@@ -308,7 +309,7 @@ output$km_download <- downloadHandler(filename = function() {
       }, contentType="application/csv")
 ## AR: 4/18/19 Added download buttons
 output$label_download <- renderUI({
-  if(input$cluster_rows != "K-means") {
+  if(input$cluster_rows %in% c("none", "dendrogram")) {
     ## Download cluster list
     downloadButton('lbl_download', "Download row labels")
   } else NULL
@@ -491,7 +492,7 @@ gene_select_index <- reactive({
   } else if(input$genelist == "Type in my own list (gene symbols)") {
     search <- tokenize_words(as.character(input$my_symbols),
                              lowercase=FALSE, strip_numeric=FALSE) %>% unlist()
-    if(length(search)) {
+    if(length(search)>0) {
       tmp <- left_join(data.frame(target_id = available_transcripts),
                      heatmap_transcripts_to_genes, by = "target_id")
       ## AR (April 24, 2019): Determine whether we should look for zebrafish or human genes
@@ -664,7 +665,7 @@ heatmap_data_select <- reactive({
   heatmap_data_select <- heatmap_data
   remove_index <- unique(c(which(apply(heatmap_data_select, 1, var) == 0), 
                            which(rowSums(is.na(heatmap_data_select)) > 0)))
-  if(length(remove_index)) {
+  if(length(remove_index)>0) {
     heatmap_data_select <- heatmap_data_select[-remove_index,]
   }
 
@@ -735,22 +736,27 @@ h <- reactive({
 
 nonkmeans_labs <- reactive({
   req(h())
-  if(input$cluster_rows != "K-means") {
-       df <- data.frame(target_id = rownames(h()@matrix)[row_order(h())]) %>%
-        dplyr::select(ID = target_id)
-      if(length(grep("ENSDART", df$ID))) {
+  if(input$cluster_rows %in% c("none", "dendrogram")) {
+    ro <- unlist(row_order(h()))
+    df <- data.frame(target_id = rownames(h()@matrix)[ro], stringsAsFactors = FALSE)
+    df$ID <- df$target_id
+       ## AR: June 19, 2019
+       # df <- data.frame(target_id = rownames(h()@matrix)[row_order(h())]) %>%
+       #  dplyr::select(ID = target_id)
+      if(length(grep("ENSDART", df$target_id))>0) {
         # pvaldf <- overall_LRT_pvalues %>% 
         #   dplyr::select(ID = target_id, ext_gene, padj = qval)
         # df <- left_join(df, pvaldf, by=c("ID")) %>%
         #   left_join(., data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE))
       ## AR 5/24: return full p-values instead of overall LRT
       pvaldf <- full_join(overall_LRT_pvalues, 
-                          data.frame(target_id = rownames(qval_all), qval_all, check.names = FALSE),
+                          data.frame(target_id = rownames(qval_all), qval_all, 
+                                     check.names = FALSE, stringsAsFactors = FALSE),
                           by = "target_id") %>% 
         dplyr::select(-qval)
       colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
                             "7dpi-0dpi_qval", "12dpi-0dpi_qval")
-      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE)
+      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE, stringsAsFactors = FALSE)
       colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
                             "7dpi-0dpi_LFC", "12dpi-0dpi_LFC")
       df <- left_join(df, pvaldf, by=c("ID")) %>%
@@ -766,7 +772,7 @@ kmeans_labs <- reactive({
    ro <- row_order(h())
    df <- data.frame(row = unlist(ro),
                     Cluster = rep(paste0("Cluster ", input$kmeans_order), 
-                                     times = unlist(lapply(ro, length))))
+                                     times = unlist(lapply(ro, length))), stringsAsFactors = FALSE)
    df$ID <- rownames(h()@matrix)[df$row]
    ## I don't need this part as the clusters have already been sorted above
 #   levels(df$Cluster) <- levels(h()@matrix_param$split$split)
@@ -778,16 +784,17 @@ kmeans_labs <- reactive({
     # set.seed(12345)
     # kclus <- kmeans(heatmap_data_select(), input$kmeans_K)
     # df <- data.frame(ID=rownames(heatmap_data_select()), Cluster=kclus$cluster)
-    if(length(grep("ENSDART", df$ID))) {
+    if(length(grep("ENSDART", df$ID))>0) {
       # pvaldf <- overall_LRT_pvalues %>% 
       #   dplyr::select(ID = target_id, ext_gene, padj = qval)
       pvaldf <- full_join(overall_LRT_pvalues, 
-                          data.frame(target_id = rownames(qval_all), qval_all, check.names = FALSE),
+                          data.frame(target_id = rownames(qval_all), qval_all, 
+                                     check.names = FALSE, stringsAsFactors = FALSE),
                           by = "target_id") %>% 
         dplyr::select(-qval)
       colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
                             "7dpi-0dpi_qval", "12dpi-0dpi_qval")
-      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE)
+      LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE, stringsAsFactors = FALSE)
       colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
                             "7dpi-0dpi_LFC", "12dpi-0dpi_LFC")
       df <- left_join(df, pvaldf, by=c("ID")) %>%
@@ -813,7 +820,8 @@ output$heatmap <- renderPlot({
 uiOutput("sequences")
 
 output$sequences <- renderUI({
-  if(input$genelist == " " | nrow(h()@matrix) == 0) {
+  # if(input$genelist == " " | nrow(h()@matrix) == 0) {
+  if(nrow(h()@matrix) == 0) {
     textOutput("no_sequences")
   } else {
     DT::dataTableOutput("anti_dataframe")
