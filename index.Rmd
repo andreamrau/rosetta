@@ -13,8 +13,8 @@ output:
 
 setRepositories(addURLs = c(BioC = "https://bioconductor.org/packages/3.8/bioc"),
                 ind=2)
-options(repos = BiocInstaller::biocinstallRepos())
-#options(repos = BiocManager::repositories())
+#options(repos = BiocInstaller::biocinstallRepos())
+options(repos = BiocManager::repositories())
 getOption("repos")
 
 # BiocManager::install("AnnotationDbi")
