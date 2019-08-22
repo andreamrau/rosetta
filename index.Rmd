@@ -47,6 +47,7 @@ sig <- readRDS("data/heatmap_sig_transcripts_bytime.rds")
 LFC_all <- readRDS("data/heatmap_LFC.rds")
 heatmap_transcripts_to_genes <- readRDS("data/heatmap_transcripts_to_genes.rds")
 overall_LRT_pvalues <- readRDS("data/heatmap_overall_LRT_pvalues.rds")
+
 logtpm <- readRDS("data/heatmap_logtpm.rds")
 qval_all <- readRDS("data/qval_all.rds")
 ## AR: May 24, add possibility to filter on 5% DE
@@ -68,6 +69,8 @@ heatmap_transcripts_to_genes <-
 ## Full correspondance between all ENSDART, ENSDARG, gene symbols
 human_ids <- readRDS("data/human_ids.rds")
 transcript_to_gene <- readRDS("data/transcripts_to_genes_map.rds")
+
+
 alias <- readRDS("data/alias.rds")
 colnames(alias) <- c("chr_old", "chr")
 
@@ -248,7 +251,8 @@ output$plot_all_or_DE <- renderUI({
   if(!input$genelist %in% c(" ", "Built-in gene list")) {
       radioButtons("all_or_DE", 
                 label="Gene set choice:",
-                choices = c("All genes in list", "Only DE genes (5%)", "Only DE genes (1%)"),
+                choices = c("All genes in list", "Only DE (padj<5%, Wald tests vs 0dpi)", "Only DE (padj<1%, Wald tests vs 0dpi)", 
+                  "Only DE (padj<5%, LRT)", "Only DE (padj<1%, LRT)"),
                 selected = "All genes in list", inline=FALSE) 
   }
 })
@@ -451,61 +455,26 @@ gene_select_index <- reactive({
                        unlist(dplyr::select(dplyr::filter(prenamed_clusters, 
                                                           cluster_name == input$builtin_choice), ID)))
     }
-  # } else if(input$genelist == "Input my own list (Ensembl IDs)") {
-  #   ## If zebrafish is chosen
-  #   if(input$org_choice == "Danio rerio genes (GRCz10)") {
-  #     if(length(grep("ENSDART", input$my_ensembl))) {
-  #       search <- tokenize_words(as.character(input$my_ensembl),
-  #                            lowercase=FALSE, strip_numeric=FALSE) %>% unlist()
-  #       index <- which(available_transcripts %in% search)
-  #     } else if(length(grep("ENSDARG", input$my_ensembl))) {
-  #       search <- tokenize_words(as.character(input$my_ensembl),
-  #                            lowercase=FALSE, strip_numeric=FALSE) %>% unlist()
-  #       search <- data.frame(ens_gene = search) %>%
-  #         left_join(., transcript_to_gene, by = "ens_gene") %>% dplyr::select(target_id) %>% unlist()
-  #       index <- which(available_transcripts %in% search)
-  #     } else {
-  #       stop("Only gene or transcript Ensembl IDs may be used for zebrafish.")
-  #     }
-  #   ## Allow for any ensembl gene ids
-  #   } else {
-  #     library(biomaRt)
-  #     search <- tokenize_words(as.character(input$my_ensembl), 
-  #                           lowercase=FALSE, strip_numeric=FALSE) %>% unlist()
-  #     if(length(search)) {
-  #       ensembl <- useMart(host = 'mar2016.archive.ensembl.org', 
-  #                  biomart='ENSEMBL_MART_ENSEMBL')
-  #       neworg <- useDataset(ds[which(ds$description == input$org_choice),1], mart=ensembl)
-  #       zebrafish <- useDataset("drerio_gene_ensembl", mart=ensembl)
-  #       new_gene_names <- getLDS(attributes=c("ensembl_gene_id"), filters="ensembl_gene_id",
-  #            values=search,
-  #            mart=neworg, attributesL=c("ensembl_gene_id"), martL=zebrafish)[,2] 
-  #         if(!is.logical(new_gene_names)) {
-  #               tmp <- left_join(data.frame(ens_gene = new_gene_names),
-  #                    transcript_to_gene, by = "ens_gene")
-  #         index <- which(available_transcripts %in% tmp$target_id) 
-  #       } else {
-  #         index <- c()
-  #       }
-  #     } else index <- c()
-  #   }
   } else if(input$genelist == "Type in my own list (gene symbols)") {
     search <- tokenize_words(as.character(input$my_symbols),
                              lowercase=FALSE, strip_numeric=FALSE) %>% unlist()
+    search_tmp <- paste0(unlist(lapply(search, function(x) paste0("^", x, "$", collapse=""))), 
+                    collapse = "|") 
     if(length(search)>0) {
-      tmp <- left_join(data.frame(target_id = available_transcripts),
-                     heatmap_transcripts_to_genes, by = "target_id")
       ## AR (April 24, 2019): Determine whether we should look for zebrafish or human genes
       if(input$hugo_vs_symbols == "HGNC gene symbols") {
-        find_ensgene <- unique(human_ids[which(human_ids$hgnc_symbol %in% search),1])
+        find_ensgene <- human_ids %>%
+          dplyr::filter(grepl(search_tmp, hgnc_symbol, ignore.case = TRUE)) %>%
+          dplyr::select(ens_gene) %>% unlist
         find_ensdart <- unique(transcript_to_gene[which(transcript_to_gene$ens_gene %in% find_ensgene),1])
-        index <- which(tmp$target_id %in% find_ensdart)
+        index <- which(available_transcripts %in% find_ensdart)
       } else {
-        index <- which(tmp$ext_gene %in% search)
+        tmp2 <- transcript_to_gene %>% 
+                dplyr::filter(grepl(search_tmp, ext_gene, ignore.case = TRUE)) 
+        index <- which(available_transcripts %in% tmp2$target_id) 
       }
     } else index <- c()
     ## input$genelist == "Read in Excel sheet or .csv"
-
   } else {
     req(input$excel)
     inFile <- input$excel
@@ -526,8 +495,8 @@ gene_select_index <- reactive({
           tmmp <- left_join(data.frame(target_id = available_transcripts),
                      transcript_to_gene, by = "target_id")
           index <- which(tmmp$ens_gene %in% search) 
-         ## Arbitrary Ensembl gene IDs (but they must ALL be Ensembl IDs)
-        } else if (length(grep("ENS", search)) == length(search)) {
+         ## Arbitrary Ensembl gene IDs (but  as a sanity check, at least half must be Ensembl IDs)
+        } else if (length(grep("ENS", search)) >= 0.5*length(search)) {
           library(biomaRt)
           ensembl <- useMart(host = 'mar2016.archive.ensembl.org', 
                    biomart='ENSEMBL_MART_ENSEMBL')
@@ -618,24 +587,36 @@ gene_select_index <- reactive({
     }
   }
      })
-  
   return(index)
 })
 
 heatmap_data_select <- reactive({
   
     if(input$genelist != "Built-in gene list") {
-      if(input$all_or_DE == "Only DE genes (1%)") {
+      if(input$all_or_DE == "Only DE (padj<1%, Wald tests vs 0dpi)") {
 #      DE_index <- which(overall_LRT_pvalues$qval < 0.05)
        ## AR 4/18/19: use the same differential definition as before
        available_transcripts <- rownames(LFC_all)
        DE_index <- which(available_transcripts %in% sig_transcripts)
        index <- intersect(gene_select_index(), DE_index)
        ## AR 5/24/19: add filtering on 5% as well if desired
-      } else if(input$all_or_DE == "Only DE genes (5%)") {
+      } else if(input$all_or_DE == "Only DE (padj<5%, Wald tests vs 0dpi)") {
        available_transcripts <- rownames(LFC_all)
        DE_index <- which(available_transcripts %in% sig_transcripts_05)
        index <- intersect(gene_select_index(), DE_index)
+       ## AR 8/22/19: add filtering on LRT as well if desired
+      } else if(input$all_or_DE == "Only DE (padj<1%, LRT)") {
+        available_transcripts <- rownames(LFC_all)
+        sig_LRT_01 <- overall_LRT_pvalues %>% filter(qval < 0.01) %>%
+          dplyr::select(target_id) %>% unlist
+        DE_index <- which(available_transcripts %in% sig_LRT_01)
+        index <- intersect(gene_select_index(), DE_index)
+      } else if(input$all_or_DE == "Only DE (padj<5%, LRT)") {
+        available_transcripts <- rownames(LFC_all)
+        sig_LRT_05 <- overall_LRT_pvalues %>% filter(qval < 0.05) %>%
+          dplyr::select(target_id) %>% unlist
+        DE_index <- which(available_transcripts %in% sig_LRT_05)
+        index <- intersect(gene_select_index(), DE_index)
       } else {
         index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
       }
@@ -709,6 +690,8 @@ h <- reactive({
     row_names_gp <- gpar(fontsize = 12)
   }
   if(input$cluster_rows == "K-means") {
+    ## ADDED AUGUST 2019 !!!!!!!!
+    suppressWarnings(RNGversion("3.5.1"))
     set.seed(12345)
      kclus <- kmeans(heatmap_data_select(), input$kmeans_K)
      if(length(unique(input$kmeans_order)) != length(unique(kclus$cluster))) {
@@ -753,8 +736,8 @@ nonkmeans_labs <- reactive({
                           data.frame(target_id = rownames(qval_all), qval_all, 
                                      check.names = FALSE, stringsAsFactors = FALSE),
                           by = "target_id") %>% 
-        dplyr::select(-qval)
-      colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
+        dplyr::select(target_id, ext_gene, qval, everything())
+      colnames(pvaldf) <- c("ID", "ext_gene", "LRT_qval", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
                             "7dpi-0dpi_qval", "12dpi-0dpi_qval")
       LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE, stringsAsFactors = FALSE)
       colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
@@ -791,8 +774,8 @@ kmeans_labs <- reactive({
                           data.frame(target_id = rownames(qval_all), qval_all, 
                                      check.names = FALSE, stringsAsFactors = FALSE),
                           by = "target_id") %>% 
-        dplyr::select(-qval)
-      colnames(pvaldf) <- c("ID", "ext_gene", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
+        dplyr::select(target_id, ext_gene, qval, everything())
+      colnames(pvaldf) <- c("ID", "ext_gene", "LRT_qval", "2dpi-0dpi_qval", "4dpi-0dpi_qval",
                             "7dpi-0dpi_qval", "12dpi-0dpi_qval")
       LFCdf <- data.frame(ID = rownames(LFC_all), LFC_all, check.names=FALSE, stringsAsFactors = FALSE)
       colnames(LFCdf) <- c("ID", "2dpi-0dpi_LFC", "4dpi-0dpi_LFC",
@@ -820,8 +803,12 @@ output$heatmap <- renderPlot({
 uiOutput("sequences")
 
 output$sequences <- renderUI({
-  # if(input$genelist == " " | nrow(h()@matrix) == 0) {
-  if(nrow(h()@matrix) == 0) {
+   if(input$genelist == " ") {
+    textOutput("no_sequences")
+   } else if(is.null(h()@matrix)) {
+    textOutput("no_sequences")
+
+   } else if(nrow(h()@matrix) == 0) {
     textOutput("no_sequences")
   } else {
     DT::dataTableOutput("anti_dataframe")
@@ -1641,7 +1628,7 @@ The app is organized into 2 primary analysis tabs: one centered on a list of gen
 
 **2. How are DE genes identified in the app?**
 
-Transcript abundances in the RNA-seq data were quantified using [kallisto](https://pachterlab.github.io/kallisto/), and differentially expressed transcripts were identified using [sleuth](https://pachterlab.github.io/sleuth/). For heatmaps of built-in differential gene lists (e.g. "2dpi-0dpi DE genes"), a q-value threshold of 1% was used to identify DE transcripts; the "All DE genes" list corresponds to the 4614 transcripts for which a q-value < 1% was observed for at least one of the pairwise comparisons. When reading in an Excel spreadsheet or .csv file containing gene symbols or Ensembl Ids, users additionally have the option of filtering their gene selection to include only DE genes; in this case, genes are identified as DE if the q-value from at least one pairwise comparison is less than 1% or 5% for any transcript corresponding to the gene.
+Transcript abundances in the RNA-seq data were quantified using [kallisto](https://pachterlab.github.io/kallisto/), and differentially expressed transcripts were identified using [sleuth](https://pachterlab.github.io/sleuth/). For heatmaps of built-in differential gene lists (e.g. "2dpi-0dpi DE genes"), a q-value threshold of 1% was used to identify DE transcripts with respect to the 0dpi time point; the "All DE genes" list corresponds to the 4614 transcripts for which a q-value < 1% was observed for at least one of the pairwise comparisons. When reading in an Excel spreadsheet or .csv file containing gene symbols or Ensembl Ids, users additionally have the option of filtering their gene selection to include only DE genes; in this case, genes are identified as DE if the q-value is less than 1% or 5% for any transcript corresponding to the gene in either the full set of Wald pairwise tests with respect to 0 dpir or in the likelihood ratio test (LRT), as selected by the user.
 
 **3. How are proximal and distal open chromatin regions defined with respect to a set of genes?**
 
@@ -1651,7 +1638,7 @@ A proximal peaklet was then defined as one that overlaps the TSS and/or is withi
 
 **3. Does the app require login or registration?**
 
-No login or registration is required. This resource is available under the [GNU public license](https://www.gnu.org/licenses/gpl-3.0.en.html) (GPL-3). If you use any of the results or figures generated by this app in a publication or presentation, please cite our work: Dhara et al. (2019)  Identifying regulatory factors governing regeneration-associated gene expression during Central Nervous System (CNS) regeneration in zebrafish (in preparation) and Rau et al. (2019) Regeneration Rosetta:  An interactive web application to explore regeneration-associated gene expression and chromatin accessibility (in preparation).
+No login or registration is required. This resource is available under the [GNU public license](https://www.gnu.org/licenses/gpl-3.0.en.html) (GPL-3). If you use any of the results or figures generated by this app in a publication or presentation, please cite our work: [Dhara et al. (2019)  Regulation of CNS regeneration-associated genes is driven by a temporally changing cast of transcription factors](https://doi.org/10.1101/638734) and [Rau et al. (2019) Regeneration Rosetta:  An interactive web application to explore regeneration-associated gene expression and chromatin accessibility](https://doi.org/10.1101/632018).
 
 
 **4. Who should I contact if I have questions about the app?**
@@ -1664,7 +1651,7 @@ For more information about the experimental details, etc. related to this work:
 
 * Dhara et al. (2019) Regulation of CNS regeneration-associated genes is driven by a temporally changing cast of transcription factors. *bioRxiv*, doi: https://doi.org/10.1101/638734.
 
-For more information about this app:
+For more information about this app, including examples of use cases:
 
 * Rau et al. (2019) Regeneration Rosetta: An interactive web application to explore regeneration-associated gene expression and chromatin accessibility. *bioRxiv*, doi: https://doi.org/10.1101/632018.
  
