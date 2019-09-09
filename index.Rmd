@@ -248,12 +248,22 @@ output$summary_text <- renderText({
 ```{r}
 uiOutput("plot_all_or_DE")
 output$plot_all_or_DE <- renderUI({
-  if(!input$genelist %in% c(" ", "Built-in gene list")) {
-      radioButtons("all_or_DE", 
+  if(!input$genelist %in% c(" ")) {
+    req(input$builtin_choice)
+          if(!input$builtin_choice %in% c("all DE genes", "2dpi-0dpi DE genes", 
+                                     "4dpi-0dpi DE genes", 
+                        "7dpi-0dpi DE genes",  "12dpi-0dpi DE genes",
+                      "growth toward the midline", "midline crossing",
+                      "target selection", "brain innervation", 
+                      "downregulated during regeneration - early",
+                      "downregulated during regeneration - mid",
+                      "downregulated during regeneration - late" )) {
+            radioButtons("all_or_DE", 
                 label="Gene set choice:",
                 choices = c("All genes in list", "Only DE (padj<5%, Wald tests vs 0dpi)", "Only DE (padj<1%, Wald tests vs 0dpi)", 
                   "Only DE (padj<5%, LRT)", "Only DE (padj<1%, LRT)"),
                 selected = "All genes in list", inline=FALSE) 
+          }
   }
 })
 ## Clustering columns
@@ -365,6 +375,8 @@ radioButtons("exonfilter",
             choices = c("Yes", "No"),
             selected = "No", inline=TRUE)
 
+uiOutput("peak_build_message")
+
 uiOutput("display_sequence_downloads1")
 uiOutput("display_sequence_downloads2")
 ```
@@ -379,6 +391,12 @@ uiOutput("display_sequence_downloads4")
 ```{r}
 uiOutput("display_sequence_downloads5")
 uiOutput("display_sequence_downloads6")
+
+output$peak_build_message <- renderUI({
+  if(input$genelist != " ") {
+    htmlOutput("peak_build_text")
+  }
+})
 output$display_sequence_downloads1 <- renderUI({
   if(input$genelist != " ") {
     downloadButton('proximal_seq_dl', "Download proximal peaklet sequences (.fasta)")
@@ -408,6 +426,9 @@ output$display_sequence_downloads6 <- renderUI({
   if(input$genelist != " ") {
     downloadButton('distal_seq_dl3', "Distal peaklet-to-gene correspondance (.csv)")
   } 
+})
+output$peak_build_text <- renderUI({
+  HTML(paste("Note: peak coordinates correspond to the Danio rerio GRCz10 genome build. Only genomic regions overlapping ATAC-seq peaklets are used in this analysis. The UCSC Genome Browser", a("liftOver", target="_blank", href="https://genome.ucsc.edu/cgi-bin/hgLiftOver"), "tool can be used to convert genome coordinates to the Danio rerio GRCz11 build, if desired.", br(), br()))
 })
 ```
 
@@ -592,8 +613,17 @@ gene_select_index <- reactive({
 
 heatmap_data_select <- reactive({
   
-    if(input$genelist != "Built-in gene list") {
-      if(input$all_or_DE == "Only DE (padj<1%, Wald tests vs 0dpi)") {
+    if(input$genelist != " ") {
+      if(!input$builtin_choice %in% c("all DE genes", "2dpi-0dpi DE genes", 
+                                     "4dpi-0dpi DE genes", 
+                        "7dpi-0dpi DE genes",  "12dpi-0dpi DE genes",
+                      "growth toward the midline", "midline crossing",
+                      "target selection", "brain innervation", 
+                      "downregulated during regeneration - early",
+                      "downregulated during regeneration - mid",
+                      "downregulated during regeneration - late" )) {
+        
+              if(input$all_or_DE == "Only DE (padj<1%, Wald tests vs 0dpi)") {
 #      DE_index <- which(overall_LRT_pvalues$qval < 0.05)
        ## AR 4/18/19: use the same differential definition as before
        available_transcripts <- rownames(LFC_all)
@@ -620,6 +650,10 @@ heatmap_data_select <- reactive({
       } else {
         index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
       }
+        
+      } else{
+       index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+     }
     } else {
       index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
     }
@@ -1108,7 +1142,9 @@ Open Chromatin
 Inputs {.sidebar data-width=400}
 -----------------------------------------------------------------------
 
-Note: peak coordinates correspond to the Danio rerio GRCz10 genome build. Only genomic regions overlapping ATAC-seq peaklets are used in this analysis.
+Note: peak coordinates correspond to the Danio rerio GRCz10 genome build. Only genomic regions overlapping ATAC-seq peaklets are used in this analysis. The UCSC Genome Browser [liftOver](https://genome.ucsc.edu/cgi-bin/hgLiftOver) tool can be used to convert genome coordinates to the Danio rerio GRCz11 build, if desired.
+
+<br>
 
 ```{r}
 ## Choose peak set
@@ -1628,7 +1664,7 @@ The app is organized into 2 primary analysis tabs: one centered on a list of gen
 
 **2. How are DE genes identified in the app?**
 
-Transcript abundances in the RNA-seq data were quantified using [kallisto](https://pachterlab.github.io/kallisto/), and differentially expressed transcripts were identified using [sleuth](https://pachterlab.github.io/sleuth/). For heatmaps of built-in differential gene lists (e.g. "2dpi-0dpi DE genes"), a q-value threshold of 1% was used to identify DE transcripts with respect to the 0dpi time point; the "All DE genes" list corresponds to the 4614 transcripts for which a q-value < 1% was observed for at least one of the pairwise comparisons. When reading in an Excel spreadsheet or .csv file containing gene symbols or Ensembl Ids, users additionally have the option of filtering their gene selection to include only DE genes; in this case, genes are identified as DE if the q-value is less than 1% or 5% for any transcript corresponding to the gene in either the full set of Wald pairwise tests with respect to 0 dpir or in the likelihood ratio test (LRT), as selected by the user.
+Transcript abundances in the RNA-seq data were quantified using [kallisto](https://pachterlab.github.io/kallisto/), and differentially expressed transcripts were identified using [sleuth](https://pachterlab.github.io/sleuth/). For heatmaps of built-in differential gene lists (e.g. "2dpi-0dpi DE genes"), a q-value threshold of 1% was used to identify DE transcripts with respect to the 0dpi time point; the "All DE genes" list corresponds to the 4614 transcripts for which a q-value < 1% was observed for at least one of the pairwise comparisons. When reading in an Excel spreadsheet or .csv file containing gene symbols or Ensembl Ids, users additionally have the option of filtering their gene selection to include only DE genes; in this case, genes are identified as DE if the q-value is less than 1% or 5% for any transcript corresponding to the gene in either the full set of Wald pairwise tests with respect to 0 dpi or in the likelihood ratio test (LRT), as selected by the user.
 
 **3. How are proximal and distal open chromatin regions defined with respect to a set of genes?**
 
@@ -1654,7 +1690,63 @@ For more information about the experimental details, etc. related to this work:
 For more information about this app, including examples of use cases:
 
 * Rau et al. (2019) Regeneration Rosetta: An interactive web application to explore regeneration-associated gene expression and chromatin accessibility. *bioRxiv*, doi: https://doi.org/10.1101/632018.
- 
+
+**6. What built-in gene lists are available in the app? **
+
+For convenience, in addition to allowing users to input arbitrary regeneration-related gene lists in the app, we have included a variety of built-in gene lists. These include the following gene lists from a variety of different cell/tissue types and organisms (with corresponding references):
+
+* Differential transcripts at each time point identified in Dhara et al. (2019): **2dpi-0dpi DE genes**, **4dpi-0dpi DE genes**, **7dpi-0dpi DE genes**, **12dpi-0dpi DE genes**
+
+* Stage-specific clusters of transcripts visualized in Figure 1 of Dhara et al. (2019): **growth toward the midline**, **midline crossing**, **target selection**, **brain innervation**, **downregulated during regeneration - early**, **downregulated during regeneration - mid**, **downregulated during regeneration - late**
+
+Dhara et al. (2019) Regulation of CNS regeneration-associated genes is driven by a temporally changing cast of transcription factors. *bioRxiv*, https://doi.org/10.1101/638734.
+
+
+
+
+* **(Belin 2015) Mouse ONI Intact v Axotomized RGC**
+
+Belin et al. (2015) Injury-induced decline of intrinsic regenerative ability revealed by quantitative proteomics. *Neuron.* 86(4):1000-1014. https://doi.org/10.1016/j.neuron.2015.03.060. PMID: 25937169; PMCID: PMC4551425.
+
+* **(Chandran 2016) Mouse PNS regeneration**
+
+Chandran et al. (2016) A Systems-Level Analysis of the Peripheral Nerve Intrinsic Axonal Growth Program. *Neuron.* 89(5):956-70. https://doi.org/10.1016/j.neuron.2016.01.034. PMID: 26898779; PMCID: PMC4790095. 
+
+* **(Crippa 2016) Mouse Heart regeneration**
+* **(Crippa 2016) Zebrafish Heart regenerationn**
+
+Crippa et al. (2016) Comparative transcriptome profiling of the injured zebrafish and mouse hearts identifies miRNA-dependent repair pathways. *Cardiovasc Res.* 110(1):73-84. https://doi.org/10.1093/cvr/cvw031. PMID: 26857418; PMCID: PMC4798047.
+
+* **(Dwaraka 2018) Salamander Limb regeneration**
+
+Dwaraka et al. (2018) Comparative transcriptomics of limb regeneration: Identification of conserved expression changes among three species of *Ambystoma*. *Genomics*,  https://doi.org/10.1016/j.ygeno.2018.07.017.
+
+* **(Herman 2018) Lamprey SCI Brain response**
+* **(Herman 2018) Lamprey SCI SC response**
+
+Herman et al. (2018) Highly conserved molecular pathways, including Wnt signaling, promote functional recovery from spinal cord injury in lampreys. *Sci Rep.* 8(1):742. https://doi.org/10.1038/s41598-017-18757-1. PMID: 29335507; PMCID: PMC5768751.
+
+* **(Li 2013) Rat SNI proximal segment response**
+
+Li et al. (2013) Differential gene expression profiling and biological process analysis in proximal nerve segments after sciatic nerve transection. *PLoS One*. 8(2):e57000. https://doi.org/10.1371/journal.pone.0057000. PMID: 23437294; PMCID: PMC3578805.
+
+* **MGI cholesterol metabolic**
+
+List of 125 genes with cholesterol-related GO terms obtained from the [Mouse Genome Informatics](http://www.informatics.jax.org/) (MGI) database.
+
+* **(Rabinowitz 2017) Zebrafish Fin regeneration**
+Rabinowitz et al. (2017) Transcriptomic, proteomic, and metabolomic landscape of positional memory in the caudal fin of zebrafish. *Proc Natl Acad Sci.* 114(5):E717-E726. https://doi.org/10.1073/pnas.1620755114. PMID: 28096348; PMCID: PMC5293114.
+
+* **(Sauls 2018) Mouse embryonic fibroblast cardiac reprogramming**
+Sauls et al. (2018) Initiating Events in Direct Cardiomyocyte Reprogramming. *Cell Rep.* 22(7):1913-1922. https://doi.org/10.1016/j.celrep.2018.01.047. PMID: 29444441; PMCID: PMC6045814.
+
+* **(Sifuentes 2016) Zebrafish acute photic lesion Muller glia response**
+
+Sifuentes et al. (2016) Rapid, Dynamic Activation of Müller Glial Stem Cell Responses in Zebrafish. *Invest Ophthalmol Vis Sci.* 57(13):5148-5160. https://doi.org/10.1167/iovs.16-19973. PMID: 27699411; PMCID: PMC5054728. 
+
+* **(Umansky 2015) Mouse Muscle regeneration**
+
+Umansky et al. (2015) Runx1 Transcription Factor Is Required for Myoblasts Proliferation during Muscle Regeneration. *PLoS Genet.* 11(8):e1005457. https://doi.org/10.1371/journal.pgen.1005457. PMID: 26275053; PMCID: PMC4537234.
 
 <br>
 <br>

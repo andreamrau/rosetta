@@ -331,4 +331,160 @@ prenamed_clusters <- read_excel("data/DEgenes_heatmap_transcript IDs.xls",
                                 sheet="heatmap_clusters") %>%
   dplyr::select(ID, cluster_name = `cluster name`)
 saveRDS(prenamed_clusters, "data/prenamed_clusters.rds")
- 
+
+
+#------------------------------------------------------------------------------------------------------------------
+## Save additional pre-named clusters
+#------------------------------------------------------------------------------------------------------------------
+
+library(biomaRt)
+ensembl <- useMart(host = 'mar2016.archive.ensembl.org', 
+                   biomart='ENSEMBL_MART_ENSEMBL')
+ds <- readRDS("data/ensembl_ds.rds")
+human_ids <- readRDS("data/human_ids.rds")
+
+LFC_all <- readRDS("data/heatmap_LFC.rds")
+logtpm <- readRDS("data/heatmap_logtpm.rds")
+LFC_all <- LFC_all[,c(2,1,3,4)]
+colnames(LFC_all) <- strsplit(colnames(LFC_all), split = ".b", fixed= TRUE) %>% unlist()
+LFC_all <- LFC_all[match(rownames(logtpm), rownames(LFC_all)),]
+available_transcripts <- rownames(LFC_all)
+transcript_to_gene <- readRDS("data/transcripts_to_genes_map.rds")
+
+expressed <-  rownames(LFC_all)[which(rowSums(is.na(LFC_all)) < 4)]
+
+final_list <- vector("list", 13)
+names(final_list) <- c("Belin", "Chandran", "Crippa_mouse", "Crippa_zebrafish", "Dwaraka", "Herman_brain",
+                       #"Herman_brain_TF-encoding", 
+                       "Herman_SC", 
+                       #"Herman_SC_TF-encoding", 
+                       "Li",
+                       "MGI_cholesterol_metabolic", "Rabinowitz", "Sauls", "Sifuentes", "Umansky")
+for(i in names(final_list)) {
+  tmmp <- read_excel("data/rosetta_extra_data.xlsx", sheet = i)
+  cat(i, ": ", nrow(tmmp), "inputs \n")
+  search <- unlist(unique(tmmp[,1]))
+  cat(length(search), "unique input genes \n")
+
+  ## Mouse Ensembl gene IDs
+  if(i %in% c("Belin", "Chandran", "Crippa_mouse", "MGI_cholesterol_metabolic", "Sauls", "Umansky")) {
+    neworg <- useDataset(ds[which(ds$dataset == "mmusculus_gene_ensembl"),1], mart=ensembl)
+    zebrafish <- useDataset("drerio_gene_ensembl", mart=ensembl)
+    new_gene_names <- getLDS(attributes=c("ensembl_gene_id"), filters="ensembl_gene_id",
+                             values=search,
+                             mart=neworg, attributesL=c("ensembl_gene_id"), martL=zebrafish)[,2] 
+    tmp <- suppressWarnings(left_join(data.frame(ens_gene = new_gene_names),
+                       transcript_to_gene, by = "ens_gene"))
+    final <- unique(na.omit(tmp$target_id))
+    final_list[[i]] <- data.frame(ID = final[which(final %in% expressed)], stringsAsFactors = FALSE)
+    cat(nrow(final_list[[i]]), "unique expressed zebrafish transcripts \n")
+    
+  ## Zebrafish gene IDs  
+  } else if(i %in% c("Crippa_zebrafish", "Rabinowitz", "Sifuentes")) {
+    tmp <- suppressWarnings(left_join(data.frame(ens_gene = search),
+                                      transcript_to_gene, by = "ens_gene"))
+    final <- unique(na.omit(tmp$target_id))
+    final_list[[i]] <- data.frame(ID = final[which(final %in% expressed)], stringsAsFactors = FALSE)
+    cat(nrow(final_list[[i]]), "unique expressed zebrafish transcripts \n")
+    
+  ## HGNC symbols  
+  } else if(i %in% c("Dwaraka", "Herman_brain", "Herman_brain_TF-encoding", 
+                     "Herman_SC", "Herman_SC_TF-encoding")){
+    search_tmp <- paste0(unlist(lapply(search, function(x) paste0("^", x, "$", collapse=""))), 
+                         collapse = "|") 
+    find_ensgene <- human_ids %>%
+      dplyr::filter(grepl(search_tmp, hgnc_symbol, ignore.case = TRUE)) %>%
+      dplyr::select(ens_gene) %>% unlist
+    find_ensdart <- unique(transcript_to_gene[which(transcript_to_gene$ens_gene %in% find_ensgene),1])
+    final <- unique(na.omit(find_ensdart))
+    final_list[[i]] <- data.frame(ID = final[which(final %in% expressed)], stringsAsFactors = FALSE)
+    cat(nrow(final_list[[i]]), "unique expressed zebrafish transcripts \n")  
+    
+  ## Rat Ensembl gene IDs  
+  } else {
+    neworg <- useDataset(ds[which(ds$dataset == "rnorvegicus_gene_ensembl"),1], mart=ensembl)
+    zebrafish <- useDataset("drerio_gene_ensembl", mart=ensembl)
+    new_gene_names <- getLDS(attributes=c("ensembl_gene_id"), filters="ensembl_gene_id",
+                             values=search,
+                             mart=neworg, attributesL=c("ensembl_gene_id"), martL=zebrafish)[,2] 
+    tmp <- suppressWarnings(left_join(data.frame(ens_gene = new_gene_names),
+                                      transcript_to_gene, by = "ens_gene"))
+    final <- unique(na.omit(tmp$target_id))
+    final_list[[i]] <- data.frame(ID = final[which(final %in% expressed)], stringsAsFactors = FALSE)
+    cat(nrow(final_list[[i]]), "unique expressed zebrafish transcripts \n")
+  }
+  cat("*****\n")
+}
+
+
+names(final_list) <- c("(Belin 2015) Mouse ONI Intact v Axotomized RGC",
+"(Chandran 2016) Mouse PNS regeneration",
+"(Crippa 2016) Mouse Heart regeneration",
+"(Crippa 2016) Zebrafish Heart regeneration",
+"(Dwaraka 2018) Salamander Limb regeneration",
+"(Herman 2018) Lamprey SCI Brain response",
+"(Herman 2018) Lamprey SCI SC response",
+"(Li 2013) Rat SNI proximal segment response",
+"MGI cholesterol metabolic",
+"(Rabinowitz 2017) Zebrafish Fin regeneration",
+"(Sauls 2018) Mouse embryonic fibroblast cardiac reprogramming",
+"(Sifuentes 2016) Zebrafish acute photic lesion Muller glia response",
+"(Umansky 2015) Mouse Muscle regeneration")
+
+final_list_df <- bind_rows(final_list, .id = "cluster_name")
+
+final_prenamed_clusters <- bind_rows(prenamed_clusters, final_list_df)
+saveRDS(final_prenamed_clusters, "data/prenamed_clusters.rds")
+
+# Belin :  62 inputs 
+# 61 unique input genes 
+# 178 unique expressed zebrafish transcripts 
+# *****
+#   Chandran :  62 inputs 
+# 60 unique input genes 
+# 137 unique expressed zebrafish transcripts 
+# *****
+#   Crippa_mouse :  6592 inputs 
+# 5580 unique input genes 
+# 10199 unique expressed zebrafish transcripts 
+# *****
+#   Crippa_zebrafish :  891 inputs 
+# 485 unique input genes 
+# 878 unique expressed zebrafish transcripts 
+# *****
+#   Dwaraka :  405 inputs 
+# 405 unique input genes 
+# 761 unique expressed zebrafish transcripts 
+# *****
+#   Herman_brain :  3664 inputs 
+# 2325 unique input genes 
+# 3712 unique expressed zebrafish transcripts 
+# *****
+#   Herman_SC :  3998 inputs 
+# 2519 unique input genes 
+# 4076 unique expressed zebrafish transcripts 
+# *****
+#   Li :  456 inputs 
+# 445 unique input genes 
+# 683 unique expressed zebrafish transcripts 
+# *****
+#   MGI_cholesterol_metabolic :  125 inputs 
+# 125 unique input genes 
+# 232 unique expressed zebrafish transcripts 
+# *****
+#   Rabinowitz :  566 inputs 
+# 566 unique input genes 
+# 927 unique expressed zebrafish transcripts 
+# *****
+#   Sauls :  3463 inputs 
+# 3382 unique input genes 
+# 7616 unique expressed zebrafish transcripts 
+# *****
+#   Sifuentes :  3143 inputs 
+# 2685 unique input genes 
+# 4303 unique expressed zebrafish transcripts 
+# *****
+#   Umansky :  636 inputs 
+# 623 unique input genes 
+# 1055 unique expressed zebrafish transcripts 
+# *****
