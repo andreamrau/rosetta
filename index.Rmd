@@ -168,6 +168,7 @@ output$builtin_list <- renderUI({
 })
 
 output$custom_list_ensembl <- renderUI({
+  req(input$genelist)
   if(input$genelist == "Read in Excel sheet or .csv") {
     radioButtons("ensembl_vss_symbols", label = "Type of ID?",
               choices = c("Zebrafish gene names", "HGNC gene symbols", "Ensembl gene or transcript IDs"),
@@ -180,6 +181,8 @@ output$custom_list_ensembl <- renderUI({
 })
 
 output$custom_list_ensembl_org <- renderUI({
+  req(input$genelist)
+  req(input$ensembl_vss_symbols)
   if(input$genelist == "Read in Excel sheet or .csv") {
     if(!input$ensembl_vss_symbols %in% c("Zebrafish gene names", "HGNC gene symbols")) {
       selectInput("org_choice", label="Select organism",
@@ -190,6 +193,7 @@ output$custom_list_ensembl_org <- renderUI({
 })
 
 output$custom_list_symbols <- renderUI({
+  req(input$genelist)
   if(input$genelist == "Type in my own list (gene symbols)") {
     textInput("my_symbols", label="Enter gene names here (space/comma/semicolon delimited)")
   } else NULL
@@ -197,6 +201,7 @@ output$custom_list_symbols <- renderUI({
 
 ## TODO: read in xlsx or csv file
 output$read_excel <- renderUI({
+  req(input$genelist)
   if(input$genelist == "Read in Excel sheet or .csv") {
     fileInput("excel", 
               label = "Choose .xlsx or .csv file (with Ensembl gene/transcript IDs or gene names)",
@@ -204,6 +209,7 @@ output$read_excel <- renderUI({
   } else NULL
 })
 output$excel_columns <- renderUI({
+  req(input$genelist)
     if(input$genelist == "Read in Excel sheet or .csv") {
           if(is.null(input$excel)) 
       return(NULL)
@@ -249,7 +255,8 @@ output$summary_text <- renderText({
 uiOutput("plot_all_or_DE")
 output$plot_all_or_DE <- renderUI({
   if(!input$genelist %in% c(" ")) {
-    req(input$builtin_choice)
+    if(input$genelist == "Built-in gene list") {
+          req(input$builtin_choice)
           if(!input$builtin_choice %in% c("all DE genes", "2dpi-0dpi DE genes", 
                                      "4dpi-0dpi DE genes", 
                         "7dpi-0dpi DE genes",  "12dpi-0dpi DE genes",
@@ -264,6 +271,15 @@ output$plot_all_or_DE <- renderUI({
                   "Only DE (padj<5%, LRT)", "Only DE (padj<1%, LRT)"),
                 selected = "All genes in list", inline=FALSE) 
           }
+    } else {
+          req(input$excel)
+            radioButtons("all_or_DE", 
+                label="Gene set choice:",
+                choices = c("All genes in list", "Only DE (padj<5%, Wald tests vs 0dpi)", "Only DE (padj<1%, Wald tests vs 0dpi)", 
+                  "Only DE (padj<5%, LRT)", "Only DE (padj<1%, LRT)"),
+                selected = "All genes in list", inline=FALSE) 
+    }
+
   }
 })
 ## Clustering columns
@@ -459,8 +475,10 @@ gene_select_index <- reactive({
 
   index <- c()
   available_transcripts <- rownames(LFC_all)
+  req(input$genelist)
   # Choose transcripts
   if(input$genelist == "Built-in gene list") {
+    req(input$builtin_choice)
     if(input$builtin_choice == "all DE genes") {
       index <- which(available_transcripts %in% sig_transcripts)
     } else if(input$builtin_choice == "2dpi-0dpi DE genes") {
@@ -482,6 +500,7 @@ gene_select_index <- reactive({
     search_tmp <- paste0(unlist(lapply(search, function(x) paste0("^", x, "$", collapse=""))), 
                     collapse = "|") 
     if(length(search)>0) {
+      req(input$hugo_vs_symbols)
       ## AR (April 24, 2019): Determine whether we should look for zebrafish or human genes
       if(input$hugo_vs_symbols == "HGNC gene symbols") {
         find_ensgene <- human_ids %>%
@@ -612,52 +631,88 @@ gene_select_index <- reactive({
 })
 
 heatmap_data_select <- reactive({
+    req(input$genelist)
   
-    if(input$genelist != " ") {
+  if(input$genelist != " ") {
+    if(input$genelist == "Built-in gene list") {
+      req(input$builtin_choice)
       if(!input$builtin_choice %in% c("all DE genes", "2dpi-0dpi DE genes", 
-                                     "4dpi-0dpi DE genes", 
-                        "7dpi-0dpi DE genes",  "12dpi-0dpi DE genes",
-                      "growth toward the midline", "midline crossing",
-                      "target selection", "brain innervation", 
-                      "downregulated during regeneration - early",
-                      "downregulated during regeneration - mid",
-                      "downregulated during regeneration - late" )) {
-        
-              if(input$all_or_DE == "Only DE (padj<1%, Wald tests vs 0dpi)") {
-#      DE_index <- which(overall_LRT_pvalues$qval < 0.05)
-       ## AR 4/18/19: use the same differential definition as before
-       available_transcripts <- rownames(LFC_all)
-       DE_index <- which(available_transcripts %in% sig_transcripts)
-       index <- intersect(gene_select_index(), DE_index)
-       ## AR 5/24/19: add filtering on 5% as well if desired
-      } else if(input$all_or_DE == "Only DE (padj<5%, Wald tests vs 0dpi)") {
-       available_transcripts <- rownames(LFC_all)
-       DE_index <- which(available_transcripts %in% sig_transcripts_05)
-       index <- intersect(gene_select_index(), DE_index)
-       ## AR 8/22/19: add filtering on LRT as well if desired
-      } else if(input$all_or_DE == "Only DE (padj<1%, LRT)") {
-        available_transcripts <- rownames(LFC_all)
-        sig_LRT_01 <- overall_LRT_pvalues %>% filter(qval < 0.01) %>%
-          dplyr::select(target_id) %>% unlist
-        DE_index <- which(available_transcripts %in% sig_LRT_01)
-        index <- intersect(gene_select_index(), DE_index)
-      } else if(input$all_or_DE == "Only DE (padj<5%, LRT)") {
-        available_transcripts <- rownames(LFC_all)
-        sig_LRT_05 <- overall_LRT_pvalues %>% filter(qval < 0.05) %>%
-          dplyr::select(target_id) %>% unlist
-        DE_index <- which(available_transcripts %in% sig_LRT_05)
-        index <- intersect(gene_select_index(), DE_index)
-      } else {
-        index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
-      }
+                                      "4dpi-0dpi DE genes", 
+                                      "7dpi-0dpi DE genes",  "12dpi-0dpi DE genes",
+                                      "growth toward the midline", "midline crossing",
+                                      "target selection", "brain innervation", 
+                                      "downregulated during regeneration - early",
+                                      "downregulated during regeneration - mid",
+                                      "downregulated during regeneration - late" )) {
+        req(input$all_or_DE)
+        if(input$all_or_DE == "Only DE (padj<1%, Wald tests vs 0dpi)") {
+          #      DE_index <- which(overall_LRT_pvalues$qval < 0.05)
+          ## AR 4/18/19: use the same differential definition as before
+          available_transcripts <- rownames(LFC_all)
+          DE_index <- which(available_transcripts %in% sig_transcripts)
+          index <- intersect(gene_select_index(), DE_index)
+          ## AR 5/24/19: add filtering on 5% as well if desired
+        } else if(input$all_or_DE == "Only DE (padj<5%, Wald tests vs 0dpi)") {
+          available_transcripts <- rownames(LFC_all)
+          DE_index <- which(available_transcripts %in% sig_transcripts_05)
+          index <- intersect(gene_select_index(), DE_index)
+          ## AR 8/22/19: add filtering on LRT as well if desired
+        } else if(input$all_or_DE == "Only DE (padj<1%, LRT)") {
+          available_transcripts <- rownames(LFC_all)
+          sig_LRT_01 <- overall_LRT_pvalues %>% filter(qval < 0.01) %>%
+            dplyr::select(target_id) %>% unlist
+          DE_index <- which(available_transcripts %in% sig_LRT_01)
+          index <- intersect(gene_select_index(), DE_index)
+        } else if(input$all_or_DE == "Only DE (padj<5%, LRT)") {
+          available_transcripts <- rownames(LFC_all)
+          sig_LRT_05 <- overall_LRT_pvalues %>% filter(qval < 0.05) %>%
+            dplyr::select(target_id) %>% unlist
+          DE_index <- which(available_transcripts %in% sig_LRT_05)
+          index <- intersect(gene_select_index(), DE_index)
+        } else {
+          index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+        }
         
       } else{
-       index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
-     }
-    } else {
-      index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+        index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+      }
+    }   else {
+#      index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+      req(input$excel)
+      req(input$all_or_DE)
+        if(input$all_or_DE == "Only DE (padj<1%, Wald tests vs 0dpi)") {
+          #      DE_index <- which(overall_LRT_pvalues$qval < 0.05)
+          ## AR 4/18/19: use the same differential definition as before
+          available_transcripts <- rownames(LFC_all)
+          DE_index <- which(available_transcripts %in% sig_transcripts)
+          index <- intersect(gene_select_index(), DE_index)
+          ## AR 5/24/19: add filtering on 5% as well if desired
+        } else if(input$all_or_DE == "Only DE (padj<5%, Wald tests vs 0dpi)") {
+          available_transcripts <- rownames(LFC_all)
+          DE_index <- which(available_transcripts %in% sig_transcripts_05)
+          index <- intersect(gene_select_index(), DE_index)
+          ## AR 8/22/19: add filtering on LRT as well if desired
+        } else if(input$all_or_DE == "Only DE (padj<1%, LRT)") {
+          available_transcripts <- rownames(LFC_all)
+          sig_LRT_01 <- overall_LRT_pvalues %>% filter(qval < 0.01) %>%
+            dplyr::select(target_id) %>% unlist
+          DE_index <- which(available_transcripts %in% sig_LRT_01)
+          index <- intersect(gene_select_index(), DE_index)
+        } else if(input$all_or_DE == "Only DE (padj<5%, LRT)") {
+          available_transcripts <- rownames(LFC_all)
+          sig_LRT_05 <- overall_LRT_pvalues %>% filter(qval < 0.05) %>%
+            dplyr::select(target_id) %>% unlist
+          DE_index <- which(available_transcripts %in% sig_LRT_05)
+          index <- intersect(gene_select_index(), DE_index)
+        } else {
+          index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+        }
+      
     }
-  
+  } else {
+      index <- intersect(gene_select_index(), which(rowSums(is.na(LFC_all)) < 4))
+  }
+
   ## Choose data 
   if(input$heatmap_data == "LFC") {
     heatmap_data <- LFC_all[index,]
